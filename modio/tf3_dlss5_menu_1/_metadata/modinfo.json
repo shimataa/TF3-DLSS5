@@ -1,0 +1,15 @@
+{
+    "authors": [
+        {
+            "name": "YOUR_MODIO_NAME",
+            "role": "CREATOR"
+        }
+    ],
+    "description": "NVIDIA DLSS and AMD FSR 3.1 for Transport Fever 3 on Windows, with optional DLSS 5 and an in-game menu. Replaces the game's built-in FSR 1 upscaler for a sharper, steadier image.\n\nWINDOWS ONLY. THIS MOD CONTAINS A NATIVE ADD-ON THAT YOU INSTALL BY HAND.\nEnabling the mod in the mod list only adds the menu (a D5 button at the top left). The upscaler itself is a Windows add-on (DLLs) that mods cannot install: copy it once next to TransportFever3.exe.\n\nInstall (once)\n1. Enable the mod, load a game, click the D5 button, then \"Install add-on\": the add-on's folder opens (it is the \"Windows add-on\" folder inside this mod's folder).\n2. Copy everything in it (Ctrl+A, Ctrl+C).\n3. In Steam: right-click Transport Fever 3 > Manage > Browse local files. Paste (Ctrl+V) next to TransportFever3.exe.\n4. Restart the game and pick a Resolution scale in the graphics options (67% Quality, 50% Performance, 100% native anti-aliasing).\nNothing in the game's own files is replaced. Uninstall: delete version.dll and the TF3-DLSS folder from the game folder.\n\nWhat the add-on is\n- version.dll: a small stand-in for the Windows file of the same name. The game loads it from its folder; it enables the add-on's Vulkan layer for this game only and passes everything else on to Windows' own version.dll. Nothing is written to the registry or outside the game folder.\n- TF3-DLSS\\bin: the Vulkan layer, NVIDIA's DLSS runtime and AMD's FSR 3.1 runtime (both unmodified, redistributed under their SDK licenses).\n- Full source code and the automated builds these files come from: https://github.com/shimataa/TF3-DLSS5\n\nMenu (D5 button): Upscaler ON/OFF, DLSS 5 ON/OFF, sharpness, info box. Each change is written to the game log; the add-on reads it and applies it within a second. Your saves are not changed.\n\nRequirements: Windows 10/11, Vulkan renderer (default). DLSS: NVIDIA RTX card. FSR 3.1: any GPU. The add-on picks the right one.\n\nDLSS 5 (optional): not included. It needs OptiScaler_DLSSNR and NVIDIA's official DLSS 5 model file, added by you; see TF3-DLSS\\dlss5\\README.txt. Only NVIDIA's official, unmodified model is supported (for now RTX 50 cards only).\n\nProblems: attach TF3-DLSS\\tf3_dlss.log (from the game folder) and the [tf3_dlss5] lines of stdout.txt (Steam\\userdata\\<your id>\\3493540\\local\\crash_dump), with your GPU.\n\nUnofficial; not affiliated with Urban Games, NVIDIA, AMD or the OptiScaler project. Based on TF3-DLSS by Lucas (MIT). NVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation; AMD and FSR are trademarks of Advanced Micro Devices, Inc.",
+    "name": "TF3-DLSS5 (Windows: DLSS / FSR 3.1)",
+    "summary": "Windows only. DLSS / FSR 3.1 upscaling (optional DLSS 5) with an in-game menu. Includes a native add-on you copy once into the game folder: read the description.",
+    "tags": [
+        "Script Mod"
+    ],
+    "url": "https://github.com/shimataa/TF3-DLSS5"
+}

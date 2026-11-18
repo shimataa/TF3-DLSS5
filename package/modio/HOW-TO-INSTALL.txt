@@ -1,0 +1,19 @@
+TF3-DLSS5 - Windows add-on: how to install
+==========================================
+
+Mods can't install this add-on themselves (it is a Vulkan layer, not a Lua mod). Copy it once:
+
+1. Copy everything in THIS folder (Ctrl+A, then Ctrl+C): version.dll and the TF3-DLSS folder.
+   (This file can come along; it does nothing in the game folder.)
+2. Open the game folder: in Steam, right-click Transport Fever 3 > Manage > Browse local files.
+3. Paste (Ctrl+V) there, next to TransportFever3.exe. No game file is replaced.
+4. Start the game and pick a "Resolution scale" in its graphics options:
+   67% (Quality) or 50% (Performance) for more frames, 100% for native anti-aliasing (DLAA).
+
+The D5 button at the top left of the game (from this mod) then sets it while you play.
+TF3-DLSS\README.txt has everything else: settings, DLSS 5, troubleshooting.
+
+Update: when this mod updates, copy this folder's contents over the old ones again (game closed).
+Uninstall: delete version.dll and the TF3-DLSS folder from the game folder.
+
+Windows 10/11 only. Source code and builds: https://github.com/shimataa/TF3-DLSS5

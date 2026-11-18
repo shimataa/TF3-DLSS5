@@ -1,0 +1,15 @@
+{
+    "authors": [
+        {
+            "name": "YOUR_MODIO_NAME",
+            "role": "CREATOR"
+        }
+    ],
+    "description": "In-game settings for TF3-DLSS5, the DLSS / FSR 3.1 add-on for Transport Fever 3 on Windows.\n\nIMPORTANT: this mod is only the menu. The upscaler is a separate Windows download (free, open source):\nhttps://github.com/shimataa/TF3-DLSS5/releases/latest\nWithout it, or on a console, Mac or Linux, the buttons do nothing.\n\nAdds a D5 button at the top left of the screen, next to the Layers button: Upscaler ON/OFF, DLSS 5 ON/OFF, sharpness, info box. Each change is written to the game log (stdout.txt); the add-on reads it, applies it within a second and keeps it. Your saves are not changed; the mod can be added and removed at any time.\n\nUnofficial; not affiliated with Urban Games, NVIDIA or AMD. NVIDIA and DLSS are trademarks of NVIDIA Corporation.",
+    "name": "TF3-DLSS5 Menu",
+    "summary": "In-game DLSS settings for the TF3-DLSS5 Windows add-on (separate download). Menu only: does nothing without the add-on.",
+    "tags": [
+        "Script Mod"
+    ],
+    "url": "https://github.com/shimataa/TF3-DLSS5"
+}

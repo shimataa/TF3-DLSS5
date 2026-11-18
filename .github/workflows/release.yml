@@ -1,0 +1,280 @@
+# Every push to main builds the layer and publishes a GitHub release:
+#   - TF3_DLSS_VERSION from layer/src/layer.cpp, if that version has no release yet and is newer
+#     than the latest release (a hand bump, e.g. to 1.0.0);
+#   - otherwise the next minor version after the latest release (0.2.0 -> 0.3.0).
+# The CI build stamps that version into its own copy of layer.cpp, the layer manifests and
+# package/README.txt; nothing is committed back. Pushes that only change Markdown files are skipped.
+# Pull requests get the same build, with the zip kept as a workflow artifact instead of a release.
+# After a release, the same zip goes to Nexus Mods as a new version of the main file (see the
+# nexus job); that step is skipped when the NEXUSMODS_API_KEY secret is not set.
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read  # the harness job reads the latest main build's results
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VULKAN_SDK_VERSION: 1.4.363.0
+  # NVIDIA DLSS SDK tag (https://github.com/NVIDIA/DLSS/tags). Keep it the same as the local SDK.
+  DLSS_SDK_REF: v310.9.1
+  # Nexus Mods page https://www.nexusmods.com/transportfever3/mods/17 and its main file
+  # ("TF3 DLSS", file_id=51 in the Files tab download link). These are the site's per-game IDs;
+  # the nexus job looks up the API's own IDs from them. Each release becomes a new version of it.
+  # TF3-DLSS5: fill these in with YOUR Nexus page's IDs (they were the upstream TF3-DLSS page's), then
+  # set the repository variable NEXUS_ENABLED=true; until then the nexus job is skipped.
+  NEXUS_GAME: transportfever3
+  NEXUS_MOD_ID: ''
+  NEXUS_FILE_ID: ''
+
+jobs:
+  # Works out the version on a cheap Linux runner.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          src=$(sed -n 's/^#define TF3_DLSS_VERSION "\(.*\)"/\1/p' layer/src/layer.cpp)
+          [ -n "$src" ] || { echo "TF3_DLSS_VERSION not found in layer/src/layer.cpp"; exit 1; }
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name' \
+                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -1)
+          if [ -z "$latest" ] || [ "$(printf '%s\n%s\n' "$latest" "$src" | sort -V | tail -1)" != "$latest" ]; then
+            ver=$src
+          else
+            IFS=. read -r major minor _ <<< "$latest"
+            ver="$major.$((minor + 1)).0"
+          fi
+          publish=false
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            publish=true
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "layer.cpp $src, latest release ${latest:-none} -> version $ver, publish=$publish"
+
+  # Runs the layer in harness/fake_tf3 on Mesa's CPU Vulkan driver (lavapipe), with a test upscaler in
+  # place of DLSS / FSR and the Khronos validation layer: motion vectors, the blit swap, validation.
+  # A failure stops the build, so nothing is released.
+  harness:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the NVIDIA DLSS SDK headers
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/DLSS
+          ref: ${{ env.DLSS_SDK_REF }}
+          path: _sdk/DLSS
+          sparse-checkout: include
+          sparse-checkout-cone-mode: true
+      - name: Install Vulkan (lavapipe, validation layer, glslang)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends cmake ninja-build g++ libvulkan-dev \
+            mesa-vulkan-drivers vulkan-validationlayers vulkan-tools glslang-tools
+      - name: Build
+        run: |
+          cmake -S harness -B build/harness -G Ninja -DCMAKE_BUILD_TYPE=Release -DDLSS_SDK="$PWD/_sdk/DLSS"
+          cmake --build build/harness
+      - name: Run
+        run: harness/run.sh build/harness logs/harness
+      # The latest successful build of main, for its metrics.json: the cost tables show the change.
+      - name: Find the latest main build
+        id: main
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?branch=main&event=push&status=success&per_page=1" \
+               --jq '.workflow_runs[0].id // empty' || true)
+          # builds of main from before the harness have no results: nothing to compare with
+          if [ -n "$id" ] && [ "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/artifacts?name=harness-results" \
+               --jq '.total_count' || echo 0)" = 0 ]; then id=""; fi
+          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+          echo "latest main build: ${id:-none}"
+      - name: Get its harness results
+        if: always() && steps.main.outputs.run_id != ''
+        continue-on-error: true  # expired results: the summary then has nothing to compare with
+        uses: actions/download-artifact@v4
+        with:
+          name: harness-results
+          path: _main
+          run-id: ${{ steps.main.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Summary (checks and the layer's cost against main, on the run's page)
+        if: always()
+        run: |
+          python3 harness/summary.py logs/harness _main/metrics.json > logs/harness/summary.md || exit 0
+          cat logs/harness/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: harness-results
+          path: |
+            logs/harness/**/fake_tf3.txt
+            logs/harness/**/result.json
+            logs/harness/**/tf3_dlss.log
+            logs/harness/summary.md
+            logs/harness/metrics.json
+
+  build:
+    needs: [version, harness]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the headers and Windows libraries/runtimes of the DLSS SDK (the repo is large).
+      - name: Get the NVIDIA DLSS SDK
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/DLSS
+          ref: ${{ env.DLSS_SDK_REF }}
+          path: _sdk/DLSS
+          sparse-checkout: |
+            include
+            lib/Windows_x86_64
+          sparse-checkout-cone-mode: true
+
+      - name: Cache the Vulkan SDK
+        id: vk-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\VulkanSDK\${{ env.VULKAN_SDK_VERSION }}
+          key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}
+
+      - name: Install the Vulkan SDK
+        if: steps.vk-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $ver = $env:VULKAN_SDK_VERSION
+          $exe = Join-Path $env:RUNNER_TEMP 'vulkan_sdk.exe'
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$ver/windows/vulkan_sdk.exe" -OutFile $exe -UseBasicParsing
+          $p = Start-Process $exe -ArgumentList '--root', "C:\VulkanSDK\$ver", '--accept-licenses', '--default-answer', '--confirm-command', 'install' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Vulkan SDK install failed (exit $($p.ExitCode))" }
+
+      - name: Stamp the version
+        shell: bash
+        env:
+          VER: ${{ needs.version.outputs.version }}
+        run: |
+          IFS=. read -r major minor patch <<< "$VER"
+          impl=$((major * 10000 + minor * 100 + patch))
+          sed -i "s/^#define TF3_DLSS_VERSION \".*\"/#define TF3_DLSS_VERSION \"$VER\"/" layer/src/layer.cpp
+          sed -i "s/\"implementation_version\": \"[0-9]*\"/\"implementation_version\": \"$impl\"/" layer/*.json
+          sed -i "1s/^TF3-DLSS [0-9.]*/TF3-DLSS $VER/" package/README.txt
+          git diff --stat
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $env:VULKAN_SDK = "C:\VulkanSDK\$env:VULKAN_SDK_VERSION"
+          .\scripts\get_fsr.ps1
+          .\scripts\build.ps1 -DlssSdk "$env:GITHUB_WORKSPACE\_sdk\DLSS"
+
+      - name: Package
+        shell: pwsh
+        run: .\scripts\package.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TF3-DLSS5-${{ needs.version.outputs.version }}
+          path: dist/TF3-DLSS5-${{ needs.version.outputs.version }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TF3-DLSS5-modio-${{ needs.version.outputs.version }}
+          path: |
+            dist/TF3-DLSS5-modio-${{ needs.version.outputs.version }}.zip
+            dist/TF3-DLSS5-modio-menu-only-${{ needs.version.outputs.version }}.zip
+
+      - name: Publish the release
+        if: needs.version.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "v$env:VER" "dist\TF3-DLSS5-$env:VER.zip" `
+            "dist\TF3-DLSS5-modio-$env:VER.zip" "dist\TF3-DLSS5-modio-menu-only-$env:VER.zip" `
+            --target $env:GITHUB_SHA --title "TF3-DLSS5 $env:VER" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed (exit $LASTEXITCODE)" }
+
+  # Uploads the released zip to Nexus Mods as a new version of the main file, archives the previous
+  # version and sets the mod page version. Re-run only this job if Nexus fails; the GitHub release
+  # is already out by then.
+  nexus:
+    needs: [version, build]
+    # off unless the repository variable NEXUS_ENABLED is 'true' (and the IDs above are yours)
+    if: needs.version.outputs.publish == 'true' && vars.NEXUS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # API key from https://www.nexusmods.com/settings/api-keys, stored as a repository secret.
+      NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+      VER: ${{ needs.version.outputs.version }}
+    steps:
+      - name: Check for the Nexus API key
+        if: env.NEXUSMODS_API_KEY == ''
+        run: echo "::notice::NEXUSMODS_API_KEY secret is not set, skipping the Nexus Mods upload."
+
+      - uses: actions/download-artifact@v4
+        if: env.NEXUSMODS_API_KEY != ''
+        with:
+          name: TF3-DLSS5-${{ env.VER }}
+
+      # Nexus changelog from the release notes: "* Title by @user in .../pull/9" -> "Title (#9)".
+      - name: Changelog from the GitHub release
+        id: notes
+        if: env.NEXUSMODS_API_KEY != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VER" --jq .body \
+            | sed -n 's/^\* \(.*\) by @[^ ]* in .*\/pull\/\([0-9]*\).*$/\1 (#\2)/p' > changelog.txt
+          [ -s changelog.txt ] || echo "See https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VER" > changelog.txt
+          cat changelog.txt
+          { echo 'text<<EOF'; cat changelog.txt; echo EOF; } >> "$GITHUB_OUTPUT"
+
+      # The upload API takes its own mod and file IDs, not the numbers in the site's URLs.
+      - name: Look up the Nexus API IDs
+        id: ids
+        if: env.NEXUSMODS_API_KEY != ''
+        run: |
+          get() { curl -fsS -H "apikey: $NEXUSMODS_API_KEY" "https://api.nexusmods.com/v3/games/$NEXUS_GAME/$1"; }
+          mod=$(get "mods/$NEXUS_MOD_ID" | jq -er .data.id)
+          file=$(get "mod-file-versions/$NEXUS_FILE_ID" | jq -er .data.file.id)
+          echo "mod $NEXUS_MOD_ID -> $mod, file $NEXUS_FILE_ID -> $file"
+          echo "mod=$mod" >> "$GITHUB_OUTPUT"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Nexus Mods
+        if: env.NEXUSMODS_API_KEY != ''
+        # v1.0.0-beta.11, pinned by commit.
+        uses: Nexus-Mods/upload-action@98532f7670c27cbecc78fae03fa3e278147827e2
+        with:
+          api_key: ${{ env.NEXUSMODS_API_KEY }}
+          mod_id: ${{ steps.ids.outputs.mod }}
+          file_id: ${{ steps.ids.outputs.file }}
+          filename: TF3-DLSS5-${{ env.VER }}.zip
+          version: ${{ env.VER }}
+          display_name: TF3 DLSS
+          description: TF3-DLSS ${{ env.VER }}. Release notes and source at https://github.com/${{ github.repository }}/releases/tag/v${{ env.VER }}
+          category: main
+          archive_existing_version: 'true'
+          update_mod_version: 'true'
+          changelog: ${{ steps.notes.outputs.text }}
