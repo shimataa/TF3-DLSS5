@@ -45,7 +45,7 @@ NVIDIA DLSS and AMD FSR 3.1 for **Transport Fever 3**. The mod replaces the game
 upscaler for a sharper, steadier image at the same frame rate, or more frames for the same image.
 Unofficial and experimental; not affiliated with Urban Games, NVIDIA or AMD.
 
-**[⬇ Download the latest release](https://github.com/lucasmokwa/tf3-dlss/releases/latest)**
+**[⬇ Download the latest TF3-DLSS5 release](https://github.com/shimataa/TF3-DLSS5/releases/latest)**
 
 ## Install
 
@@ -209,7 +209,8 @@ The CI build fetches the DLSS SDK from [NVIDIA/DLSS](https://github.com/NVIDIA/D
 same build, with the zip under the run's artifacts instead of a release.
 
 After the release, the `nexus` job uploads the same zip to the
-[Nexus Mods page](https://www.nexusmods.com/transportfever3/mods/17) as a new version of the main file
+TF3-DLSS5 Nexus Mods page (its IDs go in `NEXUS_MOD_ID` / `NEXUS_FILE_ID` in `release.yml`, and the
+repository variable `NEXUS_ENABLED=true` turns the job on) as a new version of the main file
 (`NEXUS_FILE_ID`), archives the previous version, sets the page's version and adds the release's PR
 titles as the changelog. It needs a Nexus API key in the `NEXUSMODS_API_KEY` repository secret and is
 skipped without one. If Nexus fails, re-run just that job; the GitHub release is already out.
