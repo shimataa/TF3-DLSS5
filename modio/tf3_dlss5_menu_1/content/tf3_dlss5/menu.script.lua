@@ -67,15 +67,21 @@ local function load_settings()
 	if addon == false then log("add-on not found next to the game (TF3-DLSS/tf3_dlss.cfg)") end
 end
 
--- This mod's folder on disk, or nil: from this script's own path, else from the mod hub.
+-- This mod's folder on disk, or nil: from where the game finds one of its files (resolveutil, as the
+-- Realistic Environment Pro mod does), else this script's own path, else the mod hub.
 local function mod_root()
 	local found
-	pcall(function()
-		local src = string.gsub(string.gsub(debug.getinfo(1, "S").source, "^@", ""), "\\", "/")
-		found = string.match(src, "^(%a:/.-)/content/tf3_dlss5/menu%.script%.lua$")
-			or string.match(src, "^(/.-)/content/tf3_dlss5/menu%.script%.lua$")
-	end)
-	if found then return found end
+	local candidates = {}
+	pcall(function() candidates[#candidates + 1] = resolveutil.resolve(ICON, "") end)
+	pcall(function() candidates[#candidates + 1] = debug.getinfo(1, "S").source end)
+	for _, c in ipairs(candidates) do
+		if type(c) == "string" then
+			local path = string.gsub(string.gsub(c, "^@", ""), "\\", "/")
+			found = string.match(path, "^(.+)/content/tf3_dlss5/[%w_%.]+$")
+			if found and not string.find(found, "::", 1, true) then return found end
+			found = nil
+		end
+	end
 	pcall(function()
 		local modId = api.type.mod.ModId.new()
 		modId.name = "tf3_dlss5_menu_1"
@@ -87,17 +93,21 @@ local function mod_root()
 	return found
 end
 
--- Opens the "Windows add-on" folder of this mod in the file explorer. Logs its path either way.
+-- Opens the "Windows add-on" folder of this mod in the file explorer. Returns a line for the menu
+-- (the game may not open it, and can't tell us), and logs it.
 local function open_addon_folder()
 	local root = mod_root()
+	local msg
 	if not root then
-		log("install: this mod's folder was not found; it is in the game's mods folder, " .. ADDON_SUBDIR)
-		return
+		msg = "Open it yourself: Steam\\userdata\\<your id>\\3493540\\local\\mods\\tf3_dlss5_menu_1\\" .. ADDON_SUBDIR
+	else
+		local folder = root .. "/" .. ADDON_SUBDIR
+		if string.match(folder, "^%a:/") then folder = string.gsub(folder, "/", "\\") end
+		local opened = pcall(function() api.modhub.openPath(folder) end)
+		msg = (opened and "If no window opened, open: " or "Open it yourself: ") .. folder
 	end
-	local folder = root .. "/" .. ADDON_SUBDIR
-	if string.match(folder, "^%a:/") then folder = string.gsub(folder, "/", "\\") end
-	local opened = pcall(function() api.modhub.openPath(folder) end)
-	log("install: " .. (opened and "opened " or "please open ") .. folder)
+	log("install: " .. msg)
+	return msg
 end
 
 local INSTALL_TIP = "Install the Windows add-on (once):"
@@ -119,6 +129,7 @@ stub.Tf3Dlss5Menu = react.RegisterRecipe("Tf3Dlss5Menu", function()
 	-- hooks first, the same on every render
 	local open = react.useState(false)
 	local rev = react.useState(0) -- bumped after each change, so the row shows the new values
+	local hint = react.useState("") -- where the add-on's folder is, after "Install add-on"
 
 	local ok, node = pcall(function()
 		load_settings()
@@ -180,7 +191,12 @@ stub.Tf3Dlss5Menu = react.RegisterRecipe("Tf3Dlss5Menu", function()
 				function() change("overlay", s.overlay == 1 and 0 or 1) end)
 			if addon ~= true then
 				children[#children + 1] = textButton(addon == false and "Install add-on" or "Add-on files",
-					INSTALL_TIP, open_addon_folder)
+					INSTALL_TIP, function() hint:set(open_addon_folder() or "") end)
+				if hint:old() ~= "" then
+					children[#children + 1] = builtin.TextView{
+						meta = { class = "tf3dlss5-hint", tooltip = INSTALL_TIP }, text = hint:old(),
+					}
+				end
 			end
 		end
 

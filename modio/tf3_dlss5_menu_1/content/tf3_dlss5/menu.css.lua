@@ -21,5 +21,9 @@ function data()
 		minSize = { 28, 32 }, maxSize = { 60, 32 },
 		padding = { 4, 2, 4, 2 }, margin = { 1, 1, 2, 1 }, gravity = { 0.5, 0.5 },
 	})
+	add("TextView!tf3dlss5-hint", {
+		minSize = { 28, 32 }, maxSize = { 900, 32 },
+		padding = { 4, 6, 4, 6 }, margin = { 1, 1, 2, 1 }, gravity = { 0.5, 0.5 },
+	})
 	return result
 end
